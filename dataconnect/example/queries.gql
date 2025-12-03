@@ -1,0 +1,30 @@
+mutation CreateCustomer @auth(level: USER) {
+  customer_insert(data: {
+    firstName: "John",
+    lastName: "Doe",
+    email: "john.doe@example.com",
+    createdAt_expr: "request.time"
+  })
+}
+
+query ListProducts @auth(level: PUBLIC, insecureReason: "This operation is safe to expose to the public") {
+  products {
+    id
+    name
+    price
+    description
+  }
+}
+
+mutation UpdateProductStock($id: UUID!, $stockQuantity: Int!) @auth(level: USER) {
+  product_update(key: {id: $id}, data: {stockQuantity: $stockQuantity})
+}
+
+query ListOrdersForCustomer($customerId: UUID!) @auth(level: USER) {
+  orders(where: {customerId: {eq: $customerId}}) {
+    id
+    orderDate
+    totalAmount
+    status
+  }
+}
