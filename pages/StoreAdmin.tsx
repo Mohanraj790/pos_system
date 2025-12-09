@@ -589,8 +589,11 @@ export const StoreAdmin: React.FC<StoreAdminProps> = ({
             <div className="max-w-2xl space-y-6">
                 <Card title="Store Configuration">
                     <form onSubmit={saveSettings} className="space-y-4">
-                        <Input label="Store Name" value={settingsForm.name || ''} disabled className="bg-slate-50" />
-                        <Input label="Currency" value={settingsForm.currency || ''} disabled className="bg-slate-50" />
+                        <Input label="Store Name" value={settingsForm.name || ''} onChange={e => setSettingsForm({...settingsForm, name: e.target.value})} />
+                        <Input label="Currency" value={settingsForm.currency || ''} disabled className="bg-slate-50 cursor-not-allowed" />
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                          ℹ Currency is locked and cannot be changed. Changing it would cause all historical transaction amounts to display incorrectly.
+                        </div>
                         <Input 
                             label="Global Discount % (Seasonal)" 
                             type="number" 

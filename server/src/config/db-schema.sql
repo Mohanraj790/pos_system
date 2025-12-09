@@ -33,8 +33,6 @@ CREATE TABLE stores (
     upi_secondary VARCHAR(100),
     active_upi_type ENUM('PRIMARY', 'SECONDARY'),
     is_active BOOLEAN DEFAULT TRUE,
-    email VARCHAR(100),
-    mobile VARCHAR(20),
     logo_url TEXT,
     timezone VARCHAR(50) DEFAULT 'Asia/Kolkata',
     global_discount DECIMAL(5,2) DEFAULT 0,

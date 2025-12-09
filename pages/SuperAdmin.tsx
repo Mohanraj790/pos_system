@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Store, Currency, Invoice, GlobalSettings, DataSource } from '../types';
 import { Card, Button, Input, Select, Badge, Modal } from '../components/UI';
+import { storesApi } from '../src/api/stores';
 import { Plus, Store as StoreIcon, Activity, TrendingUp, Edit2, Clock, Globe, Mail, Phone, Settings, Database, Server } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -87,10 +88,10 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({
     setModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentStore.name || !currentStore.ownerName) return;
-    
+
     const storeData: Store = {
         id: isEditMode && currentStore.id ? currentStore.id : `store_${Date.now()}`,
         name: currentStore.name,
@@ -108,11 +109,27 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({
         timezone: currentStore.timezone
     };
 
-    if (isEditMode) {
-        onUpdateStore(storeData);
+    // If MySQL API is configured, persist to backend first
+    if (settings?.dataSource === 'MYSQL_API') {
+      try {
+        if (isEditMode) {
+          await storesApi.update(storeData.id, storeData);
+          onUpdateStore(storeData);
+        } else {
+          await storesApi.create(storeData);
+          onAddStore(storeData);
+        }
+      } catch (err) {
+        console.error('Failed to save store to API:', err);
+        alert('Failed to save store to server. See console for details.');
+        return;
+      }
     } else {
-        onAddStore(storeData);
+      // Local storage / other data sources — keep existing behavior
+      if (isEditMode) onUpdateStore(storeData);
+      else onAddStore(storeData);
     }
+
     setModalOpen(false);
   };
 
@@ -336,8 +353,9 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <Select 
               label="Currency" 
-              value={currentStore.currency} 
-              onChange={e => setCurrentStore({...currentStore, currency: e.target.value as Currency})}
+              value={currentStore.currency}
+              onChange={e => isEditMode ? null : setCurrentStore({...currentStore, currency: e.target.value as Currency})}
+              disabled={isEditMode}
             >
               {Object.values(Currency).map(c => <option key={c} value={c}>{c}</option>)}
             </Select>
@@ -348,6 +366,12 @@ export const SuperAdmin: React.FC<SuperAdminProps> = ({
               placeholder="e.g. America/New_York" 
             />
           </div>
+
+          {isEditMode && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              ℹ Currency cannot be changed after store creation. Changing currency would cause historical transaction amounts to be incorrect.
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
              <Input 

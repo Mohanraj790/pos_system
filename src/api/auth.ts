@@ -29,4 +29,12 @@ export const authApi = {
         const response = await apiClient.get('/auth/me');
         return response.data;
     },
+    async updateProfile(profile: Partial<User>): Promise<User> {
+        const response = await apiClient.put('/auth/me', profile);
+        return response.data;
+    },
+    async changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
+        const response = await apiClient.post('/auth/me/change-password', { oldPassword, newPassword });
+        return response.data;
+    }
 };

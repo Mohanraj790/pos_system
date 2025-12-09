@@ -9,6 +9,7 @@ import { Store, Category, Product, Invoice, ViewMode, User, GlobalSettings } fro
 import { INITIAL_STORES, INITIAL_CATEGORIES, INITIAL_PRODUCTS, INITIAL_INVOICES, INITIAL_GLOBAL_SETTINGS } from './constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { storesApi } from './src/api/stores';
+import { authApi } from './src/api/auth';
 import { categoriesApi } from './src/api/categories';
 import { productsApi } from './src/api/products';
 import { invoicesApi } from './src/api/invoices';
@@ -118,8 +119,22 @@ const App = () => {
     setCurrentView('SUPER_ADMIN');
   };
 
-  const handleUpdateUser = (updatedUser: User) => {
-    setCurrentUser(updatedUser);
+  const handleUpdateUser = async (updatedUser: User) => {
+    // Persist profile updates to backend when using API
+    try {
+      const saved = await authApi.updateProfile({
+        username: updatedUser.username,
+        displayName: (updatedUser as any).displayName,
+        email: updatedUser.email,
+        phoneNumber: (updatedUser as any).phoneNumber,
+        imageUrl: (updatedUser as any).imageUrl
+      } as any);
+      setCurrentUser(saved);
+      return saved;
+    } catch (err) {
+      console.error('Failed to update profile on server:', err);
+      alert('Failed to update profile on server. See console for details.');
+    }
   };
 
   // --- CRUD Handlers ---
@@ -133,8 +148,20 @@ const App = () => {
   const handleAddStore = (store: Store) => {
     setStores([...stores, store]);
   };
-  const handleUpdateStore = (updatedStore: Store) => {
-    setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
+  const handleUpdateStore = async (updatedStore: Store) => {
+    // Persist to MySQL API when configured, otherwise update local state
+    if (globalSettings?.dataSource === 'MYSQL_API') {
+      try {
+        await storesApi.update(updatedStore.id, updatedStore);
+        setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
+      } catch (err) {
+        console.error('Failed to update store on server:', err);
+        alert('Failed to update store on server. Changes not saved. See console for details.');
+        return;
+      }
+    } else {
+      setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
+    }
   };
 
   // Category

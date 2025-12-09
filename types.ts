@@ -81,6 +81,8 @@ export interface User {
   username: string;
   role: UserRole;
   storeId?: string; // specific store assignment
+  displayName?: string;
+  phoneNumber?: string;
   email?: string;
   imageUrl?: string;
 }
