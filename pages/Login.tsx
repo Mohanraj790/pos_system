@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Store, UserRole, User } from '../types';
 import { Button, Input, Select, Card } from '../components/UI';
 import { Lock, User as UserIcon, Store as StoreIcon } from 'lucide-react';
+import { authApi } from '../src/api/auth';
 
 interface LoginProps {
   stores: Store[];
@@ -11,37 +12,76 @@ interface LoginProps {
 export const Login: React.FC<LoginProps> = ({ stores, onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('SUPER_ADMIN');
   const [selectedStoreId, setSelectedStoreId] = useState<string>('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    // Basic Validation
-    if (!username || !password) {
-      setError('Please enter username and password');
-      return;
+    try {
+      // Basic Validation
+      if (!username || !password) {
+        setError('Please enter username and password');
+        setLoading(false);
+        return;
+      }
+
+      // Call login API
+      console.log('🔍 Logging in user:', username);
+      const { token, user } = await authApi.login(username, password);
+
+      // Store token in localStorage
+      localStorage.setItem('auth_token', token);
+
+      // Check if store selection is required
+      const userRole = user.role as UserRole;
+      if ((userRole === 'STORE_ADMIN' || userRole === 'CASHIER')) {
+        // Use store from database if available, otherwise require selection
+        const storeId = user.storeId || selectedStoreId;
+
+        if (!storeId) {
+          setError('Please select a store to access');
+          setLoading(false);
+          return;
+        }
+
+        // Create user object
+        const finalUser: User = {
+          id: user.id,
+          username: user.username,
+          role: userRole,
+          storeId: storeId,
+          email: user.email,
+          imageUrl: user.imageUrl
+        };
+
+        console.log('✅ Login successful!', finalUser);
+        onLogin(finalUser);
+      } else {
+        // Super Admin
+        const finalUser: User = {
+          id: user.id,
+          username: user.username,
+          role: userRole,
+          storeId: undefined,
+          email: user.email,
+          imageUrl: user.imageUrl
+        };
+
+        console.log('✅ Login successful!', finalUser);
+        onLogin(finalUser);
+      }
+
+    } catch (err: any) {
+      console.error('❌ Login error:', err);
+      const errorMessage = err.response?.data?.error || 'Login failed. Please try again.';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
-
-    if ((role === 'STORE_ADMIN' || role === 'CASHIER') && !selectedStoreId) {
-      setError('Please select a store to access');
-      return;
-    }
-
-    // Determine Store ID based on role
-    // Super Admin is global (no storeId needed initially, or null)
-    const storeId = role === 'SUPER_ADMIN' ? undefined : selectedStoreId;
-
-    const user: User = {
-      id: `user_${Date.now()}`,
-      username,
-      role,
-      storeId
-    };
-
-    onLogin(user);
   };
 
   return (
@@ -57,57 +97,38 @@ export const Login: React.FC<LoginProps> = ({ stores, onLogin }) => {
 
         <Card className="shadow-xl border-0">
           <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Select Role</label>
-              <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-lg">
-                {(['SUPER_ADMIN', 'STORE_ADMIN', 'CASHIER'] as UserRole[]).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => { setRole(r); setSelectedStoreId(''); }}
-                    className={`
-                      py-2 px-2 rounded-md text-xs font-bold transition-all
-                      ${role === r ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}
-                    `}
-                  >
-                    {r.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Input 
-              label="Username" 
+            <Input
+              label="Username"
               placeholder="Enter username"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              // icon={<UserIcon size={18} />}
+              disabled={loading}
             />
 
-            <Input 
-              label="Password" 
-              type="password" 
+            <Input
+              label="Password"
+              type="password"
               placeholder="Enter password"
               value={password}
               onChange={e => setPassword(e.target.value)}
+              disabled={loading}
             />
 
-            {(role === 'STORE_ADMIN' || role === 'CASHIER') && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Select Store</label>
-                <select
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                  value={selectedStoreId}
-                  onChange={e => setSelectedStoreId(e.target.value)}
-                >
-                  <option value="">-- Choose Store --</option>
-                  {stores.filter(s => s.isActive).map(store => (
-                    <option key={store.id} value={store.id}>{store.name}</option>
-                  ))}
-                </select>
-                {stores.length === 0 && <p className="text-xs text-red-500">No active stores found.</p>}
-              </div>
-            )}
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-slate-700">Select Store (if applicable)</label>
+              <select
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white disabled:bg-slate-100"
+                value={selectedStoreId}
+                onChange={e => setSelectedStoreId(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">-- Choose Store (Optional) --</option>
+                {stores.filter(s => s.isActive).map(store => (
+                  <option key={store.id} value={store.id}>{store.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">Required for Store Admin and Cashier roles</p>
+            </div>
 
             {error && (
               <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2">
@@ -116,12 +137,20 @@ export const Login: React.FC<LoginProps> = ({ stores, onLogin }) => {
               </div>
             )}
 
-            <Button type="submit" className="w-full py-3 text-lg shadow-lg shadow-indigo-200">
-              Login as {role.replace('_', ' ')}
+            <Button
+              type="submit"
+              className="w-full py-3 text-lg shadow-lg shadow-indigo-200"
+              disabled={loading}
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
             </Button>
-            
+
             <div className="text-center text-xs text-slate-400 mt-4">
-              Use any password for demo
+              <div className="bg-blue-50 border border-blue-200 rounded p-2 text-blue-700">
+                <strong>Test Credentials:</strong><br />
+                admin / admin123 (Super Admin)<br />
+                cashier / cashier123 (Cashier)
+              </div>
             </div>
           </form>
         </Card>

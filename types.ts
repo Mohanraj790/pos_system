@@ -5,11 +5,11 @@ export enum Currency {
   EUR = 'EUR'
 }
 
-export type DataSource = 'FIREBASE' | 'MYSQL_API' | 'LOCAL_STORAGE';
+export type DataSource = 'MYSQL_API' | 'LOCAL_STORAGE';
 
 export interface GlobalSettings {
   dataSource: DataSource;
-  mysqlApiUrl?: string; // The backend endpoint for MySQL connection
+  mysqlApiUrl: string; // The backend endpoint for MySQL connection
   defaultTaxPresets: number[];
 }
 

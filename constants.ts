@@ -1,8 +1,8 @@
 import { Currency, Store, Category, Product, Invoice, GlobalSettings } from './types';
 
 export const INITIAL_GLOBAL_SETTINGS: GlobalSettings = {
-  dataSource: 'LOCAL_STORAGE',
-  mysqlApiUrl: 'https://api.yourdomain.com/v1',
+  dataSource: 'MYSQL_API',
+  mysqlApiUrl: 'http://localhost:3001/api',
   defaultTaxPresets: [0, 5, 12, 18, 28]
 };
 

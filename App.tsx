@@ -8,8 +8,11 @@ import { Profile } from './pages/Profile';
 import { Store, Category, Product, Invoice, ViewMode, User, GlobalSettings } from './types';
 import { INITIAL_STORES, INITIAL_CATEGORIES, INITIAL_PRODUCTS, INITIAL_INVOICES, INITIAL_GLOBAL_SETTINGS } from './constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { db } from './firebase';
-import { collection, addDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { storesApi } from './src/api/stores';
+import { categoriesApi } from './src/api/categories';
+import { productsApi } from './src/api/products';
+import { invoicesApi } from './src/api/invoices';
+
 
 const App = () => {
   // Global Settings
@@ -19,10 +22,10 @@ const App = () => {
   const [stores, setStores] = useLocalStorage<Store[]>('unibill_stores', INITIAL_STORES);
   const [categories, setCategories] = useLocalStorage<Category[]>('unibill_categories', INITIAL_CATEGORIES);
   const [products, setProducts] = useLocalStorage<Product[]>('unibill_products', INITIAL_PRODUCTS);
-  
+
   // Invoices - Logic depends on Data Source
   const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
-  
+
   // Auth State
   const [currentUser, setCurrentUser] = useLocalStorage<User | null>('unibill_user', null);
 
@@ -30,41 +33,37 @@ const App = () => {
   const [currentView, setCurrentView] = useLocalStorage<ViewMode>('unibill_current_view', 'SUPER_ADMIN');
   const [activeStoreId, setActiveStoreId] = useLocalStorage<string | null>('unibill_active_store_id', null);
 
+  // Test mode for Data Connect testing
+  const [showDataConnectTest, setShowDataConnectTest] = useState(false);
+
+
   // --- Data Synchronization Logic ---
   useEffect(() => {
-    // 1. Firebase Mode
-    if (globalSettings.dataSource === 'FIREBASE') {
-        if (!db) return; // Fallback if firebase init failed
-        
-        try {
-            const q = query(collection(db, 'invoices'), orderBy('date', 'desc'));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const firebaseInvoices = snapshot.docs.map(doc => ({
-                ...doc.data(),
-                id: doc.id
-                })) as Invoice[];
-                setInvoices(firebaseInvoices);
-            }, (error) => {
-                console.error("Firebase sync error:", error);
-            });
-            return () => unsubscribe();
-        } catch (err) {
-            console.warn("Firebase error:", err);
-        }
-    } 
-    
-    // 2. MySQL / REST API Mode
-    else if (globalSettings.dataSource === 'MYSQL_API') {
-        // Simulation of API polling or websocket connection
-        console.log(`[System] Connected to MySQL via REST API: ${globalSettings.mysqlApiUrl}`);
-        
-        // In a real app, you would fetch() here. 
-        // For this demo, we'll just keep the local state but log the intent.
-        // fetch(`${globalSettings.mysqlApiUrl}/invoices`).then(...)
-    }
+    // Load initial data from MySQL API on mount
+    const loadData = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
 
-    // 3. Local Storage Mode (Default fallback is to do nothing as state is already local)
-  }, [globalSettings.dataSource, globalSettings.mysqlApiUrl]);
+        // Load stores, categories, products, invoices from API
+        const [storesData, categoriesData, productsData, invoicesData] = await Promise.all([
+          storesApi.getAll(),
+          categoriesApi.getAll(),
+          productsApi.getAll(),
+          invoicesApi.getAll()
+        ]);
+
+        setStores(storesData);
+        setCategories(categoriesData);
+        setProducts(productsData);
+        setInvoices(invoicesData);
+      } catch (error) {
+        console.error('Failed to load data from API:', error);
+      }
+    };
+
+    loadData();
+  }, []);
 
 
   // Sync activeStoreId with User's storeId if applicable
@@ -73,18 +72,18 @@ const App = () => {
       if (currentUser.role === 'SUPER_ADMIN') {
         // If super admin is in a store view but no store is active, redirect to dashboard
         if (!activeStoreId && (currentView === 'STORE_ADMIN' || currentView === 'POS')) {
-             setCurrentView('SUPER_ADMIN');
+          setCurrentView('SUPER_ADMIN');
         }
       } else if (currentUser.storeId) {
         // Enforce store ID for non-super users
         if (activeStoreId !== currentUser.storeId) {
-            setActiveStoreId(currentUser.storeId);
+          setActiveStoreId(currentUser.storeId);
         }
-        
+
         if (currentUser.role === 'STORE_ADMIN' && currentView === 'SUPER_ADMIN') {
-           setCurrentView('STORE_ADMIN');
+          setCurrentView('STORE_ADMIN');
         } else if (currentUser.role === 'CASHIER' && currentView !== 'PROFILE' && currentView !== 'POS') {
-           setCurrentView('POS');
+          setCurrentView('POS');
         }
       }
     }
@@ -126,8 +125,8 @@ const App = () => {
   // --- CRUD Handlers ---
 
   const handleUpdateGlobalSettings = (newSettings: GlobalSettings) => {
-      setGlobalSettings(newSettings);
-      alert(`Data Source switched to: ${newSettings.dataSource}`);
+    setGlobalSettings(newSettings);
+    alert(`Data Source switched to: ${newSettings.dataSource}`);
   };
 
   // Store
@@ -148,11 +147,11 @@ const App = () => {
   const handleDeleteCategory = (categoryId: string) => {
     const hasProducts = products.some(p => p.categoryId === categoryId);
     if (hasProducts) {
-        alert("Cannot delete this category because it contains products. Please move or delete the products first.");
-        return;
+      alert("Cannot delete this category because it contains products. Please move or delete the products first.");
+      return;
     }
     if (confirm("Are you sure you want to delete this category?")) {
-        setCategories(categories.filter(c => c.id !== categoryId));
+      setCategories(categories.filter(c => c.id !== categoryId));
     }
   };
 
@@ -165,51 +164,31 @@ const App = () => {
     setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p));
   };
   const handleDeleteProduct = (productId: string) => {
-    if(confirm('Are you sure you want to delete this product?')) {
+    if (confirm('Are you sure you want to delete this product?')) {
       setProducts(products.filter(p => p.id !== productId));
     }
   };
   const handleUpdateProductStock = (id: string, delta: number) => {
-    setProducts(prev => prev.map(p => 
+    setProducts(prev => prev.map(p =>
       p.id === id ? { ...p, stockQty: p.stockQty + delta } : p
     ));
   };
 
   // Invoice
   const handleSaveInvoice = async (invoice: Invoice) => {
-    // 1. Optimistic UI Update (Always happens immediately)
-    // We assume sync = false initially
+    // Optimistic UI Update
     const newInvoice = { ...invoice, synced: false };
     setInvoices(prev => [newInvoice, ...prev]);
 
-    // 2. Data Source Logic
-    if (globalSettings.dataSource === 'FIREBASE' && db) {
-      try {
-        await addDoc(collection(db, 'invoices'), {
-          ...invoice,
-          synced: true,
-          date: new Date().toISOString()
-        });
-        // If successful via snapshot listener, it will update automatically, 
-        // but for immediate feedback we can mark local as synced if we managed it manually
-      } catch (error) {
-        console.error("Firebase write failed:", error);
-      }
-    } else if (globalSettings.dataSource === 'MYSQL_API') {
-        try {
-            console.log(`[API] POST ${globalSettings.mysqlApiUrl}/invoices`, invoice);
-            // await fetch(...)
-            // On success, update the local invoice synced status
-            setInvoices(prev => prev.map(inv => inv.id === invoice.id ? { ...inv, synced: true } : inv));
-        } catch (error) {
-            console.error("MySQL API write failed:", error);
-        }
-    } else {
-        // Local Storage Mode
-        // It's already saved to 'invoices' state which is persisted by parent component logic or we can add a specific persistence here if needed.
-        // For this demo app, 'invoices' state is not persisted in useLocalStorage in the original App code (it was useState),
-        // but let's assume it's fine for the session in this demo context.
-        setInvoices(prev => prev.map(inv => inv.id === invoice.id ? { ...inv, synced: true } : inv));
+    // Save to MySQL API
+    try {
+      await invoicesApi.create(invoice);
+      // Mark as synced
+      setInvoices(prev => prev.map(inv => inv.id === invoice.id ? { ...inv, synced: true } : inv));
+      console.log('✅ Invoice saved successfully');
+    } catch (error) {
+      console.error('❌ Failed to save invoice:', error);
+      // Optionally show error to user
     }
   };
 
@@ -217,12 +196,12 @@ const App = () => {
   const handleViewChange = (view: ViewMode) => {
     // Permission Check
     if (currentUser?.role === 'CASHIER' && view !== 'POS' && view !== 'PROFILE') {
-        alert("Access Denied: Cashiers can only access POS.");
-        return;
+      alert("Access Denied: Cashiers can only access POS.");
+      return;
     }
     if (currentUser?.role === 'STORE_ADMIN' && view === 'SUPER_ADMIN') {
-        alert("Access Denied: Restricted to Store Admin.");
-        return;
+      alert("Access Denied: Restricted to Store Admin.");
+      return;
     }
 
     if ((view === 'STORE_ADMIN' || view === 'POS') && !activeStoreId) {
@@ -243,17 +222,17 @@ const App = () => {
     if (!currentUser) return null;
 
     if (currentView === 'PROFILE') {
-        return <Profile user={currentUser} onUpdateUser={handleUpdateUser} />;
+      return <Profile user={currentUser} onUpdateUser={handleUpdateUser} />;
     }
 
     switch (currentView) {
       case 'SUPER_ADMIN':
         return (
-          <SuperAdmin 
-            stores={stores} 
+          <SuperAdmin
+            stores={stores}
             invoices={invoices}
             settings={globalSettings}
-            onAddStore={handleAddStore} 
+            onAddStore={handleAddStore}
             onUpdateStore={handleUpdateStore}
             onSelectStore={handleStoreSelect}
             onUpdateSettings={handleUpdateGlobalSettings}
@@ -261,7 +240,7 @@ const App = () => {
         );
       case 'STORE_ADMIN':
         return activeStore ? (
-          <StoreAdmin 
+          <StoreAdmin
             store={activeStore}
             categories={storeCategories}
             products={storeProducts}
@@ -280,7 +259,7 @@ const App = () => {
         );
       case 'POS':
         return activeStore ? (
-          <POS 
+          <POS
             store={activeStore}
             categories={storeCategories}
             products={storeProducts}
@@ -301,8 +280,8 @@ const App = () => {
   }
 
   return (
-    <Layout 
-      currentView={currentView} 
+    <Layout
+      currentView={currentView}
       onChangeView={handleViewChange}
       activeStoreName={activeStore?.name}
       user={currentUser}
