@@ -163,42 +163,92 @@ const App = () => {
       setStores(stores.map(s => s.id === updatedStore.id ? updatedStore : s));
     }
   };
+  // --- Category CRUD with Backend Sync ---
+  const handleAddCategory = async (category: Category) => {
+    try {
+      const result = await categoriesApi.create(category);
+      // Backend returns { message, categoryId }, but we already have full object
+      // So we use the local one (it has the temp ID we generated)
+      setCategories(prev => [...prev, category]);
+      console.log('Category created:', result);
+    } catch (error: any) {
+      console.error('Failed to create category:', error);
+      alert('Failed to save category to server: ' + (error.response?.data?.error || error.message));
+    }
+  };
 
-  // Category
-  const handleAddCategory = (category: Category) => {
-    setCategories([...categories, category]);
+  const handleUpdateCategory = async (updatedCategory: Category) => {
+    try {
+      await categoriesApi.update(updatedCategory.id, updatedCategory);
+      setCategories(prev => prev.map(c => c.id === updatedCategory.id ? updatedCategory : c));
+    } catch (error: any) {
+      console.error('Failed to update category:', error);
+      alert('Failed to update category: ' + (error.response?.data?.error || error.message));
+    }
   };
-  const handleUpdateCategory = (updatedCategory: Category) => {
-    setCategories(categories.map(c => c.id === updatedCategory.id ? updatedCategory : c));
-  };
-  const handleDeleteCategory = (categoryId: string) => {
+
+  const handleDeleteCategory = async (categoryId: string) => {
     const hasProducts = products.some(p => p.categoryId === categoryId);
     if (hasProducts) {
-      alert("Cannot delete this category because it contains products. Please move or delete the products first.");
+      alert("Cannot delete category with products. Move or delete products first.");
       return;
     }
-    if (confirm("Are you sure you want to delete this category?")) {
-      setCategories(categories.filter(c => c.id !== categoryId));
+    if (!confirm("Delete this category permanently?")) return;
+
+    try {
+      await categoriesApi.delete(categoryId);
+      setCategories(prev => prev.filter(c => c.id !== categoryId));
+    } catch (error: any) {
+      console.error('Failed to delete category:', error);
+      alert('Could not delete category: ' + (error.response?.data?.error || error.message));
     }
   };
 
-
-  // Product
-  const handleAddProduct = (product: Product) => {
-    setProducts([...products, product]);
-  };
-  const handleUpdateProduct = (updatedProduct: Product) => {
-    setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p));
-  };
-  const handleDeleteProduct = (productId: string) => {
-    if (confirm('Are you sure you want to delete this product?')) {
-      setProducts(products.filter(p => p.id !== productId));
+  // --- Product CRUD with Backend Sync ---
+  const handleAddProduct = async (product: Product) => {
+    try {
+      await productsApi.create(product);
+      setProducts(prev => [...prev, product]);
+    } catch (error: any) {
+      console.error('Failed to create product:', error);
+      alert('Failed to save product: ' + (error.response?.data?.error || error.message));
     }
   };
-  const handleUpdateProductStock = (id: string, delta: number) => {
+
+  const handleUpdateProduct = async (updatedProduct: Product) => {
+    try {
+      await productsApi.update(updatedProduct.id, updatedProduct);
+      setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+    } catch (error: any) {
+      console.error('Failed to update product:', error);
+      alert('Update failed: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!confirm('Delete this product permanently?')) return;
+    try {
+      await productsApi.delete(productId);
+      setProducts(prev => prev.filter(p => p.id !== productId));
+    } catch (error: any) {
+      console.error('Failed to delete product:', error);
+      alert('Could not delete product: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  // Bonus: Sync stock changes too (Recommended)
+  const handleUpdateProductStock = async (id: string, delta: number) => {
     setProducts(prev => prev.map(p =>
       p.id === id ? { ...p, stockQty: p.stockQty + delta } : p
     ));
+
+    try {
+      await productsApi.updateStock(id, delta);
+    } catch (error: any) {
+      console.error('Failed to sync stock change:', error);
+      alert('Stock updated locally but failed to sync with server.');
+      // Optionally revert local change here
+    }
   };
 
   // Invoice

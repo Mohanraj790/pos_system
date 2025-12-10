@@ -60,10 +60,10 @@ export interface CartItem extends Product {
 }
 
 export interface Invoice {
-  id: string;
+  id: string;                    // will be real UUID from server
   invoiceNumber: string;
   storeId: string;
-  date: string; // ISO string
+  date: string;
   items: CartItem[];
   subtotal: number;
   taxTotal: number;

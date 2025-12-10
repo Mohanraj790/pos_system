@@ -171,6 +171,11 @@ CREATE TABLE expenses (
 ALTER TABLE users ADD CONSTRAINT fk_users_store 
     FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
 
+
+ALTER TABLE invoices 
+MODIFY COLUMN date DATETIME DEFAULT CURRENT_TIMESTAMP;
+
+
 -- Insert default admin user (password: admin123)
 INSERT INTO users (id, username, password_hash, role, display_name) VALUES 
 ('admin-001', 'admin', '$2a$10$q8BB.jAl5qiWR9KU5JQmSuR1vzdBdFk1dAZqOSbwIbgMnFevF.8Fu', 'SUPER_ADMIN', 'System Administrator');

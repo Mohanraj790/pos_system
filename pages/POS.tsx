@@ -158,32 +158,74 @@ export const POS: React.FC<POSProps> = ({ store, products, categories, invoices,
     if (cart.length === 0) return;
     setShowPaymentModal(true);
   };
+const finalizePayment = async () => {
+  if (cart.length === 0) return;
 
-  const finalizePayment = () => {
-    const newInvoice: Invoice = {
-      id: `inv_${Date.now()}`,
-      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-      storeId: store.id,
-      date: new Date().toISOString(),
-      items: [...cart],
-      subtotal,
-      taxTotal,
-      discountTotal,
-      grandTotal,
-      paymentMethod: paymentMode,
-      synced: false
-    };
+  const formatMySQLDate = (date: Date) => 
+    date.toISOString().slice(0, 19).replace('T', ' ');
 
-    onSaveInvoice(newInvoice);
-    cart.forEach(item => {
-      onUpdateProductStock(item.id, -item.quantity);
+  const payload = {
+    storeId: store.id,
+    date: formatMySQLDate(new Date()),
+    items: cart.map(item => ({
+      productId: item.id,           // ← this is productId
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      appliedTaxPercent: item.appliedTaxPercent,
+      appliedDiscountPercent: item.appliedDiscountPercent,
+      lineTotal: Number(item.lineTotal.toFixed(2))
+    })),
+    subtotal: Number(subtotal.toFixed(2)),
+    taxTotal: Number(taxTotal.toFixed(2)),
+    discountTotal: Number(discountTotal.toFixed(2)),
+    grandTotal: Number(grandTotal.toFixed(2)),
+    paymentMethod: paymentMode
+  };
+
+  try {
+    const token = localStorage.getItem('auth_token');  // ← THIS IS THE KEY
+
+    const response = await fetch('http://localhost:3001/api/invoices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`  // ← ADD THIS HEADER
+      },
+      body: JSON.stringify(payload)
     });
 
-    setLastInvoice(newInvoice);
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Invoice save failed:', errorData);
+      alert('Failed: ' + (errorData.error || 'Unknown error'));
+      return;
+    }
+
+    const result = await response.json();
+    const fullInvoice: Invoice = {
+      id: result.invoiceId,
+      invoiceNumber: result.invoiceNumber,
+      ...payload,
+      items: payload.items.map((it, i) => ({ ...it, id: `item_${i}` })),
+      synced: true
+    };
+
+    setLastInvoice(fullInvoice);
+    onSaveInvoice(fullInvoice);
+
+    // Deduct stock locally
+    cart.forEach(item => onUpdateProductStock(item.id, -item.quantity));
+
     setCart([]);
     setShowPaymentModal(false);
     setShowReceipt(true);
-  };
+
+  } catch (error) {
+    console.error('Network error:', error);
+    alert('Connection failed. Check if server is running.');
+  }
+};
 
   // Generate UPI String
   const upiString = useMemo(() => {

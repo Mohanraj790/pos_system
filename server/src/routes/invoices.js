@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../config/database.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { randomUUID } from 'crypto'; 
 
 const router = express.Router();
 
@@ -64,79 +65,119 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Create invoice with items (transaction)
+// POST /api/invoices — FIXED VERSION
 router.post('/', authenticateToken, async (req, res) => {
-    const connection = await db.getConnection();
+  const connection = await db.getConnection();
+  const invoiceId = randomUUID();
 
-    try {
-        await connection.beginTransaction();
+  try {
+    await connection.beginTransaction();
 
-        const {
-            id, invoiceNumber, storeId, date, items, subtotal, taxTotal,
-            discountTotal, grandTotal, paymentMethod
-        } = req.body;
+    const {
+      storeId,
+      date,
+      items,
+      subtotal,
+      taxTotal,
+      discountTotal,
+      grandTotal,
+      paymentMethod,
+    } = req.body;
 
-        if (!storeId || !invoiceNumber || !items || items.length === 0) {
-            return res.status(400).json({ error: 'Store ID, invoice number, and items are required' });
-        }
-
-        // Insert invoice
-        await connection.query(
-            `INSERT INTO invoices (id, invoice_number, store_id, date, subtotal, tax_total, 
-                             discount_total, grand_total, payment_method, synced) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                id, invoiceNumber, storeId, date || new Date(), subtotal, taxTotal,
-                discountTotal, grandTotal, paymentMethod, true
-            ]
-        );
-
-        // Insert invoice items
-        for (const item of items) {
-            // Lock the product row and verify stock is sufficient
-            const [prodRows] = await connection.query('SELECT stock_qty FROM products WHERE id = ? FOR UPDATE', [item.id]);
-            if (!prodRows || prodRows.length === 0) {
-                throw new Error(`Product not found: ${item.id}`);
-            }
-
-            const currentStock = parseInt(prodRows[0].stock_qty, 10) || 0;
-            if (currentStock < item.quantity) {
-                // Insufficient stock - rollback and return error
-                await connection.rollback();
-                return res.status(400).json({ error: `Insufficient stock for product ${item.name} (id: ${item.id}). Available: ${currentStock}, requested: ${item.quantity}` });
-            }
-
-            await connection.query(
-                `INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, 
-                                     unit_price, applied_tax_percent, applied_discount_percent, line_total) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    id, item.id, item.name, item.quantity, item.price,
-                    item.appliedTaxPercent, item.appliedDiscountPercent, item.lineTotal
-                ]
-            );
-
-            // Update product stock (safe because we locked the row above)
-            await connection.query(
-                'UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?',
-                [item.quantity, item.id]
-            );
-        }
-
-        await connection.commit();
-
-        res.status(201).json({
-            message: 'Invoice created successfully',
-            invoiceId: id
-        });
-    } catch (error) {
-        await connection.rollback();
-        console.error('Create invoice error:', error);
-        res.status(500).json({ error: 'Failed to create invoice' });
-    } finally {
-        connection.release();
+    if (!storeId || !items || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // Generate unique invoice number on backend
+    const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+    // 1. Insert invoice with UUID
+    await connection.query(
+      `INSERT INTO invoices 
+       (id, invoice_number, store_id, date, subtotal, tax_total, discount_total, 
+        grand_total, payment_method, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        invoiceId,
+        invoiceNumber,
+        storeId,
+        date || new Date(),
+        subtotal || 0,
+        taxTotal || 0,
+        discountTotal || 0,
+        grandTotal || 0,
+        paymentMethod || 'CASH',
+        true,
+      ]
+    );
+
+    // 2. Insert items + deduct stock
+    for (const item of items) {
+      // Check product exists and lock row
+      const [productRows] = await connection.query(
+        'SELECT stock_qty FROM products WHERE id = ? FOR UPDATE',
+        [item.productId]
+      );
+
+      if (productRows.length === 0) {
+        throw new Error(`Product not found: ${item.productId}`);
+      }
+
+      const currentStock = parseInt(productRows[0].stock_qty);
+      if (currentStock < item.quantity) {
+        throw new Error(`Insufficient stock for ${item.name}`);
+      }
+
+      // Insert invoice item
+      await connection.query(
+        `INSERT INTO invoice_items 
+         (invoice_id, product_id, product_name, quantity, unit_price,
+          applied_tax_percent, applied_discount_percent, line_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invoiceId,
+          item.productId,
+          item.name,
+          item.quantity,
+          item.price,
+          item.appliedTaxPercent || 0,
+          item.appliedDiscountPercent || 0,
+          item.lineTotal,
+        ]
+      );
+
+      // Deduct stock
+      await connection.query(
+        'UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?',
+        [item.quantity, item.productId]
+      );
+    }
+
+    await connection.commit();
+
+    res.status(201).json({
+      message: 'Invoice created successfully',
+      invoiceId,
+      invoiceNumber,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Create invoice error:', error);
+
+    if (error.message.includes('Insufficient stock') || error.message.includes('Product not found')) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(500).json({
+      error: 'Failed to create invoice',
+      details: error.message,
+    });
+  } finally {
+    connection.release();
+  }
 });
+
+
 
 // Get single invoice with items
 router.get('/:id', authenticateToken, async (req, res) => {
